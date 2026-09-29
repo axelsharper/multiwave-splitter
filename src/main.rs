@@ -297,6 +297,7 @@ impl App {
                 ui.separator();
                 if ui.button("All stereo").clicked() {
                     l.link = split::default_links(n);
+                    split::sync_linked_selection(n, &l.link, &mut l.selected);
                 }
                 if ui.button("All mono").clicked() {
                     l.link.iter_mut().for_each(|s| *s = false);
@@ -309,6 +310,14 @@ impl App {
         let groups = split::link_groups(n, &l.link);
         let linkable: Vec<bool> = (0..n).map(|c| split::can_link(n, &l.link, c)).collect();
         let mut group_of = vec![0usize; n as usize];
+        // The other channel of a linked pair, if any.
+        let mut partner: Vec<Option<usize>> = vec![None; n as usize];
+        for g in &groups {
+            if let Some(b) = g.second {
+                partner[g.first as usize] = Some(b as usize);
+                partner[b as usize] = Some(g.first as usize);
+            }
+        }
         let mut row_text: Vec<Option<String>> = vec![None; n as usize];
         for (gi, g) in groups.iter().enumerate() {
             group_of[g.first as usize] = gi;
@@ -374,7 +383,15 @@ impl App {
                                 .max_rect(cell(row, GUTTER, CH_W))
                                 .layout(left_aligned),
                             |ui| {
-                                ui.checkbox(&mut l.selected[ch], format!("CH {}", ch + 1));
+                                let changed = ui
+                                    .checkbox(&mut l.selected[ch], format!("CH {}", ch + 1))
+                                    .changed();
+                                // Linked channels are selected together.
+                                if changed {
+                                    if let Some(p) = partner[ch] {
+                                        l.selected[p] = l.selected[ch];
+                                    }
+                                }
                             },
                         );
                         if linkable[ch] {
@@ -383,13 +400,16 @@ impl App {
                                     .max_rect(cell(row, GUTTER + CH_W, LINK_W))
                                     .layout(left_aligned),
                                 |ui| {
-                                    ui.checkbox(&mut l.link[ch], "Stereo Link").on_hover_text(
-                                        format!(
+                                    let resp = ui
+                                        .checkbox(&mut l.link[ch], "Stereo Link")
+                                        .on_hover_text(format!(
                                             "Make CH {} and CH {} one stereo file",
                                             ch + 1,
                                             ch + 2
-                                        ),
-                                    );
+                                        ));
+                                    if resp.changed() {
+                                        split::sync_linked_selection(n, &l.link, &mut l.selected);
+                                    }
                                 },
                             );
                         }
@@ -831,6 +851,28 @@ mod ui_tests {
             .map(|o| file_name(&o.path))
             .collect();
         assert_eq!(names, ["Three CH 1.wav", "Three CH 2-3.wav"]);
+
+        // Unticking one side of a linked pair unticks both.
+        harness.get_all_by_label("CH 3").next().unwrap().click();
+        harness.run();
+        assert_eq!(
+            harness.state().loaded.as_ref().unwrap().selected,
+            [true, false, false]
+        );
+        let names: Vec<String> = harness
+            .state()
+            .outputs()
+            .iter()
+            .map(|o| file_name(&o.path))
+            .collect();
+        assert_eq!(names, ["Three CH 1.wav"]);
+        // Ticking it again brings the stereo pair back.
+        harness.get_all_by_label("CH 2").next().unwrap().click();
+        harness.run();
+        assert_eq!(
+            harness.state().loaded.as_ref().unwrap().selected,
+            [true, true, true]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

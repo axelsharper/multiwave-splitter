@@ -106,6 +106,21 @@ pub fn can_link(channels: u16, link: &[bool], ch: u16) -> bool {
     ch + 1 < channels && starts_group && !next_is_linked
 }
 
+/// Linked channels are selected together, like stereo-linked mixer channels.
+/// After links change, a pair whose two channels disagree becomes selected
+/// (linking signals that the pair is wanted as stereo).
+pub fn sync_linked_selection(channels: u16, link: &[bool], selected: &mut [bool]) {
+    for g in link_groups(channels, link) {
+        if let Some(b) = g.second {
+            let (a, b) = (g.first as usize, b as usize);
+            if selected[a] != selected[b] {
+                selected[a] = true;
+                selected[b] = true;
+            }
+        }
+    }
+}
+
 /// Output channels for one group given the selection: a stereo pair when both
 /// linked channels are selected, otherwise mono files for what is selected.
 pub fn group_outputs(g: LinkGroup, selected: &[bool]) -> Vec<Vec<u16>> {
@@ -361,6 +376,10 @@ mod tests {
             ["CH 1-2", "CH 3"]
         );
         assert!(!can_link(3, &link, 1));
+        // Linking a half-selected pair selects both channels.
+        let mut sel = [true, true, false];
+        sync_linked_selection(3, &[false, true, false], &mut sel);
+        assert_eq!(sel, [true, true, true]);
         // Last channel can never link.
         assert!(!can_link(3, &[false, false, true], 2));
     }

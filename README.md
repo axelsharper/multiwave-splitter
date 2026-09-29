@@ -20,15 +20,20 @@
 </p>
 
 Recorded a gig on a digital mixer (X32/Wing/SQ/dLive, Zoom, Sound Devices, a DAW export…) and got
-one huge 16/32/64-channel WAV? Open it in Multiwave Splitter, tick the channels you want, choose
-stereo or mono per channel pair, press **Split**. Done.
+one huge 16/32/64-channel WAV? Open it in Multiwave Splitter, tick the channels you want, link the
+stereo pairs, press **Split**. Done.
 
 ## Features
 
 - Pick which channels to export with checkboxes.
-- Channels are shown in pairs (1-2, 3-4, …). **Stereo** is ticked by default and turns the pair into
-  one stereo file. Untick it to get two mono files instead. Selecting only one channel of a pair
-  gives a mono file.
+- **Stereo Link** like on a mixer: a linked channel and the one below it become one stereo file,
+  shown with a bracket in the list. By default 1-2, 3-4, … are linked. Unlink a pair to get two
+  mono files.
+- Links can be moved: with 3 channels, unlink CH 1 and link CH 2 instead to get `CH 1` + `CH 2-3`.
+  Stereo Link is offered on a channel when there is a channel below it, and neither of them is
+  already part of another link.
+- Linked channels are selected together, so a stereo pair is always exported as stereo. To export
+  just one side of a pair, unlink it first.
 - Clear file names: `Show.wav` → `Show CH 1-2.wav`, `Show CH 3.wav`, `Show CH 4.wav` …
 - By default the files are saved next to the original with the same name. Use **Browse…** to pick
   another folder or base name.
@@ -89,8 +94,8 @@ All downloads are also listed on the [Releases page](https://github.com/axelshar
 ## How to use
 
 1. Click **Open WAV…** (or drop a file on the window).
-2. Tick the channels you want. Use **Select all / Select none** and **All stereo / All mono** for
-   speed. The *Output file* column shows exactly which files will be created.
+2. Tick the channels you want and set **Stereo Link** on the pairs that belong together. Use
+   **Select all / Select none** and **All stereo / All mono** for speed. The *Output file* column shows exactly which files will be created.
 3. Optional: click **Browse…** to choose another output folder or base name.
 4. Click **Split**.
 
@@ -131,7 +136,7 @@ split, cancellation, and a UI test that clicks through the whole app.
 
 ```
 src/wav.rs      WAV/RF64 reader and streaming writer (no external audio libraries)
-src/split.rs    Output planning (pairs, stereo/mono, file names) and the split itself
+src/split.rs    Output planning (Stereo Link, file names) and the split itself
 src/main.rs     GUI (egui/eframe)
 examples/       Headless command line split, used for testing
 installer/      Windows installer script, Linux .desktop file and install script
@@ -162,7 +167,7 @@ Contributions welcome! Open an issue or a pull request.
 - [ ] Batch mode: split several files at once with the same selection.
 - [ ] Handle recordings split into several files (e.g. X-Live/SD-card recorders that split every
       4 GB) and join them while splitting.
-- [ ] Free pairing: make any two channels a stereo file (e.g. CH 1 + CH 3).
+- [ ] Free pairing of non-adjacent channels as stereo (e.g. CH 1 + CH 3).
 - [ ] Remember the last output folder and settings between sessions.
 - [ ] Open files by dropping them on the Dock icon / "Open With" in Finder.
 - [ ] Optional conversion of bit depth / sample rate, and other output formats (FLAC, AIFF).
@@ -172,7 +177,7 @@ Contributions welcome! Open an issue or a pull request.
 - [ ] Peak meters or waveform preview per channel to spot empty channels.
 
 **Done**
-- [x] Channel selection with stereo/mono per pair, clear `CH x-y` suffixes.
+- [x] Channel selection with movable Stereo Link, clear `CH x-y` suffixes.
 - [x] Default output next to the input, optional Browse.
 - [x] PCM 8–32 bit, float 32/64 bit, EXTENSIBLE, RF64/BW64 in and out.
 - [x] Progress, cancel, safe overwrite.
