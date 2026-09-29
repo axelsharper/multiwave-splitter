@@ -49,7 +49,8 @@ struct Loaded {
     path: PathBuf,
     info: WavInfo,
     selected: Vec<bool>,
-    stereo: Vec<bool>,
+    /// Stereo Link flag per channel: links the channel with the one below.
+    link: Vec<bool>,
 }
 
 enum JobResult {
@@ -137,7 +138,7 @@ impl App {
                 self.loaded = Some(Loaded {
                     path,
                     selected: vec![true; ch],
-                    stereo: vec![true; ch.div_ceil(2)],
+                    link: split::default_links(ch as u16),
                     info,
                 });
                 self.base_override = None;
@@ -161,7 +162,7 @@ impl App {
     fn outputs(&self) -> Vec<OutputSpec> {
         match (&self.loaded, self.base()) {
             (Some(l), Some(base)) => {
-                plan_outputs(&base, l.info.format.channels, &l.selected, &l.stereo)
+                plan_outputs(&base, l.info.format.channels, &l.selected, &l.link)
             }
             _ => Vec::new(),
         }
@@ -276,10 +277,14 @@ impl App {
     }
 
     fn channel_list(&mut self, ui: &mut egui::Ui) {
-        let base = self.base();
+        const ROW_H: f32 = 30.0;
+        const GUTTER: f32 = 22.0;
+        const CH_W: f32 = 92.0;
+        const LINK_W: f32 = 132.0;
+
         let busy = self.job.is_some();
         let Some(l) = &mut self.loaded else { return };
-        let n = l.info.format.channels as usize;
+        let n = l.info.format.channels;
 
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!busy, |ui| {
@@ -291,62 +296,159 @@ impl App {
                 }
                 ui.separator();
                 if ui.button("All stereo").clicked() {
-                    l.stereo.iter_mut().for_each(|s| *s = true);
+                    l.link = split::default_links(n);
                 }
                 if ui.button("All mono").clicked() {
-                    l.stereo.iter_mut().for_each(|s| *s = false);
+                    l.link.iter_mut().for_each(|s| *s = false);
                 }
             });
         });
         ui.add_space(6.0);
 
+        // Resolve the current state once per frame; edits apply on the next frame.
+        let groups = split::link_groups(n, &l.link);
+        let linkable: Vec<bool> = (0..n).map(|c| split::can_link(n, &l.link, c)).collect();
+        let mut group_of = vec![0usize; n as usize];
+        let mut row_text: Vec<Option<String>> = vec![None; n as usize];
+        for (gi, g) in groups.iter().enumerate() {
+            group_of[g.first as usize] = gi;
+            if let Some(b) = g.second {
+                group_of[b as usize] = gi;
+            }
+            for out in split::group_outputs(*g, &l.selected) {
+                row_text[out[0] as usize] = Some(split::channel_label(&out));
+                if out.len() == 2 {
+                    row_text[out[1] as usize] = Some(String::new());
+                }
+            }
+        }
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.add_enabled_ui(!busy, |ui| {
-                    egui::Grid::new("channels")
-                        .striped(true)
-                        .num_columns(4)
-                        .spacing([18.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label(RichText::new("Channels").weak().small());
-                            ui.label("");
-                            ui.label("");
-                            ui.label(RichText::new("Output file").weak().small());
-                            ui.end_row();
-                            for pair in 0..n.div_ceil(2) {
-                                let a = pair * 2;
-                                let b = a + 1;
-                                ui.checkbox(&mut l.selected[a], format!("CH {}", a + 1));
-                                if b < n {
-                                    ui.checkbox(&mut l.selected[b], format!("CH {}", b + 1));
-                                    ui.checkbox(&mut l.stereo[pair], "Stereo");
-                                } else {
-                                    ui.label("");
-                                    ui.label("");
-                                }
+                    let cell = |row: egui::Rect, x: f32, w: f32| {
+                        egui::Rect::from_min_size(
+                            egui::pos2(row.left() + x, row.top()),
+                            egui::vec2(w, row.height()),
+                        )
+                    };
+                    let left_aligned = egui::Layout::left_to_right(egui::Align::Center);
 
-                                // Preview of the resulting file names for this pair.
-                                let mut names = Vec::new();
-                                if let Some(base) = &base {
-                                    let sel: Vec<bool> = l.selected.clone();
-                                    for spec in
-                                        plan_outputs(base, l.info.format.channels, &sel, &l.stereo)
-                                    {
-                                        if spec.channels[0] as usize / 2 == pair {
-                                            names.push(split::channel_label(&spec.channels));
-                                        }
-                                    }
-                                }
-                                let preview = if names.is_empty() {
-                                    RichText::new("skipped").weak().italics()
-                                } else {
-                                    RichText::new(names.join(", ")).monospace()
+                    // Header
+                    let (hdr, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 18.0),
+                        egui::Sense::hover(),
+                    );
+                    for (x, w, text) in [
+                        (GUTTER, CH_W, "Channel"),
+                        (GUTTER + CH_W + LINK_W, 200.0, "Output file"),
+                    ] {
+                        ui.scope_builder(
+                            egui::UiBuilder::new()
+                                .max_rect(cell(hdr, x, w))
+                                .layout(left_aligned),
+                            |ui| {
+                                ui.label(RichText::new(text).weak().small());
+                            },
+                        );
+                    }
+
+                    let mut rows = Vec::with_capacity(n as usize);
+                    for ch in 0..n as usize {
+                        let (row, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), ROW_H),
+                            egui::Sense::hover(),
+                        );
+                        if group_of[ch].is_multiple_of(2) {
+                            ui.painter().rect_filled(
+                                row.shrink2(egui::vec2(0.0, 1.0)),
+                                4.0,
+                                ui.visuals().faint_bg_color,
+                            );
+                        }
+                        rows.push(row);
+
+                        ui.scope_builder(
+                            egui::UiBuilder::new()
+                                .max_rect(cell(row, GUTTER, CH_W))
+                                .layout(left_aligned),
+                            |ui| {
+                                ui.checkbox(&mut l.selected[ch], format!("CH {}", ch + 1));
+                            },
+                        );
+                        if linkable[ch] {
+                            ui.scope_builder(
+                                egui::UiBuilder::new()
+                                    .max_rect(cell(row, GUTTER + CH_W, LINK_W))
+                                    .layout(left_aligned),
+                                |ui| {
+                                    ui.checkbox(&mut l.link[ch], "Stereo Link").on_hover_text(
+                                        format!(
+                                            "Make CH {} and CH {} one stereo file",
+                                            ch + 1,
+                                            ch + 2
+                                        ),
+                                    );
+                                },
+                            );
+                        }
+                        let out_rect = cell(
+                            row,
+                            GUTTER + CH_W + LINK_W,
+                            (row.width() - GUTTER - CH_W - LINK_W).max(40.0),
+                        );
+                        ui.scope_builder(
+                            egui::UiBuilder::new()
+                                .max_rect(out_rect)
+                                .layout(left_aligned),
+                            |ui| {
+                                match &row_text[ch] {
+                                    Some(t) => ui.label(RichText::new(t).monospace()),
+                                    None => ui.label(RichText::new("skipped").weak().italics()),
                                 };
-                                ui.label(preview);
-                                ui.end_row();
-                            }
-                        });
+                            },
+                        );
+                    }
+
+                    // Stereo brackets with the "oo" link badge. All sizes are in
+                    // points, so they scale with the UI on every display density;
+                    // line positions snap to pixel centres to stay crisp at 1x.
+                    let accent = Color32::from_rgb(0x2f, 0x6f, 0xeb);
+                    let painter = ui.painter();
+                    for (gi, g) in groups.iter().enumerate() {
+                        let Some(b) = g.second else { continue };
+                        let (r1, r2) = (rows[g.first as usize], rows[b as usize]);
+                        let active = l.selected[g.first as usize] && l.selected[b as usize];
+                        let color = if active {
+                            accent
+                        } else {
+                            ui.visuals().weak_text_color()
+                        };
+                        let x = painter.round_to_pixel_center(r1.left() + 9.0);
+                        let tip = r1.left() + GUTTER - 4.0;
+                        let y1 = painter.round_to_pixel_center(r1.center().y);
+                        let y2 = painter.round_to_pixel_center(r2.center().y);
+                        painter.line(
+                            vec![
+                                egui::pos2(tip, y1),
+                                egui::pos2(x, y1),
+                                egui::pos2(x, y2),
+                                egui::pos2(tip, y2),
+                            ],
+                            egui::Stroke::new(1.5, color),
+                        );
+                        // Badge: gap in the line behind two small linked rings.
+                        let mid = egui::pos2(x, (y1 + y2) / 2.0);
+                        let gap = egui::Rect::from_center_size(mid, egui::vec2(12.0, 9.0));
+                        painter.rect_filled(gap, 2.0, ui.visuals().panel_fill);
+                        if gi.is_multiple_of(2) {
+                            painter.rect_filled(gap, 2.0, ui.visuals().faint_bg_color);
+                        }
+                        let ring = egui::Stroke::new(1.2, color);
+                        painter.circle_stroke(mid - egui::vec2(2.2, 0.0), 2.8, ring);
+                        painter.circle_stroke(mid + egui::vec2(2.2, 0.0), 2.8, ring);
+                    }
                 });
             });
     }
@@ -628,7 +730,11 @@ mod ui_tests {
         harness.run();
 
         // Pair CH 3-4 -> two mono files; untick CH 5.
-        harness.get_all_by_label("Stereo").nth(1).unwrap().click();
+        harness
+            .get_all_by_label("Stereo Link")
+            .nth(1)
+            .unwrap()
+            .click();
         harness.get_all_by_label("CH 5").next().unwrap().click(); // the checkbox (the preview label comes after)
         harness.run();
         harness.get_by_label("Split").click();
@@ -674,6 +780,57 @@ mod ui_tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(matches!(harness.state().status, Status::Success(..)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn three_channels_link_two_and_three() {
+        let dir = std::env::temp_dir().join(format!("mws-ui3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("Three.wav");
+        let fmt = WavFormat {
+            channels: 3,
+            sample_rate: 48000,
+            container_bits: 16,
+            valid_bits: 16,
+            kind: SampleKind::Int,
+        };
+        let mut w = WavWriter::create(&input, fmt).unwrap();
+        w.write(&vec![1u8; 480 * 6]).unwrap();
+        w.finalize().unwrap();
+
+        let path = input.clone();
+        let mut harness = Harness::builder()
+            .with_size([560.0, 640.0])
+            .build_eframe(move |_cc| {
+                let mut app = App::default();
+                app.open(path);
+                app
+            });
+        harness.run();
+
+        // Default: only CH 1 offers Stereo Link (1-2 linked, CH 3 is last).
+        assert_eq!(harness.get_all_by_label("Stereo Link").count(), 1);
+        // Unlink CH 1 -> the option moves to CH 2 as well.
+        harness.get_by_label("Stereo Link").click();
+        harness.run();
+        assert_eq!(harness.get_all_by_label("Stereo Link").count(), 2);
+        // Link CH 2 -> CH 1 loses its option (CH 2 is now linked).
+        harness
+            .get_all_by_label("Stereo Link")
+            .nth(1)
+            .unwrap()
+            .click();
+        harness.run();
+        assert_eq!(harness.get_all_by_label("Stereo Link").count(), 1);
+
+        let names: Vec<String> = harness
+            .state()
+            .outputs()
+            .iter()
+            .map(|o| file_name(&o.path))
+            .collect();
+        assert_eq!(names, ["Three CH 1.wav", "Three CH 2-3.wav"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
