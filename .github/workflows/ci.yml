@@ -20,3 +20,37 @@ jobs:
       - run: rustup update stable && rustup default stable
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
+
+  # Installs the Linux package like a user would (Ubuntu 24.04 = Linux Mint 22 base)
+  # and checks that the menu entry and its icon resolve.
+  linux-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev desktop-file-utils python3-gi gir1.2-gtk-3.0 xvfb hicolor-icon-theme
+      - run: rustup update stable && rustup default stable
+      - run: scripts/package-linux.sh
+      - name: Install from tarball
+        run: |
+          cd "$(mktemp -d)"
+          tar xzf "$GITHUB_WORKSPACE/dist/MultiwaveSplitter-Linux-x86_64.tar.gz"
+          MultiwaveSplitter-Linux-x86_64/install-linux.sh
+      - run: desktop-file-validate ~/.local/share/applications/multiwave-splitter.desktop
+      - name: Icon resolves through the icon theme
+        run: |
+          xvfb-run python3 - <<'PY'
+          import gi
+          gi.require_version("Gtk", "3.0")
+          from gi.repository import Gtk
+          theme = Gtk.IconTheme.get_default()
+          for size in (16, 24, 32, 48, 64, 128, 256):
+              info = theme.lookup_icon("multiwave-splitter", size, 0)
+              assert info is not None, f"icon not found at {size}px"
+              print(size, info.get_filename())
+          PY
+      - name: Uninstall removes everything
+        run: |
+          cd "$(mktemp -d)" && tar xzf "$GITHUB_WORKSPACE/dist/MultiwaveSplitter-Linux-x86_64.tar.gz"
+          MultiwaveSplitter-Linux-x86_64/install-linux.sh --uninstall
+          test ! -e ~/.local/share/applications/multiwave-splitter.desktop
+          test -z "$(find ~/.local/share/icons -name 'multiwave-splitter*')"

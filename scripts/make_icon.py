@@ -39,6 +39,11 @@ d.ellipse([fx + 50 - 13, cy - 13, fx + 50 + 13, cy + 13], fill=white)
 
 img.save(os.path.join(root, "icon.png"))
 img.resize((256, 256), Image.LANCZOS).save(os.path.join(root, "icon-256.png"))
+# Standard hicolor sizes for Linux menus (hicolor has no 1024x1024 directory).
+linux_dir = os.path.join(root, "linux")
+os.makedirs(linux_dir, exist_ok=True)
+for size in (16, 24, 32, 48, 64, 128, 256, 512):
+    img.resize((size, size), Image.LANCZOS).save(os.path.join(linux_dir, f"{size}x{size}.png"))
 img.save(os.path.join(root, "icon.ico"), sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 if shutil.which("iconutil"):

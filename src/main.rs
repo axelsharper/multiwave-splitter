@@ -18,6 +18,8 @@ const ICON_PNG: &[u8] = include_bytes!("../assets/icon-256.png");
 fn main() -> eframe::Result {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(APP_NAME)
+        // Matches the Linux .desktop file name so panels show the right icon.
+        .with_app_id("multiwave-splitter")
         .with_inner_size([560.0, 640.0])
         .with_min_inner_size([460.0, 420.0])
         .with_drag_and_drop(true);

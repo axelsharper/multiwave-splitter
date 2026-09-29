@@ -7,7 +7,7 @@ NAME="MultiwaveSplitter-Linux-$ARCH"
 cargo build --release
 rm -rf "dist/$NAME" && mkdir -p "dist/$NAME"
 cp target/release/multiwave-splitter "dist/$NAME/"
-cp assets/icon.png "dist/$NAME/multiwave-splitter.png"
+cp -R assets/linux "dist/$NAME/icons"
 cp installer/multiwave-splitter.desktop installer/install-linux.sh LICENSE README.md "dist/$NAME/"
 chmod +x "dist/$NAME/install-linux.sh" "dist/$NAME/multiwave-splitter"
 tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
