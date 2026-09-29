@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Multiwave Splitter
+Comment=Split multichannel WAV files into mono and stereo files
+Exec=multiwave-splitter %f
+Icon=multiwave-splitter
+Terminal=false
+Categories=AudioVideo;Audio;
+MimeType=audio/x-wav;audio/wav;
